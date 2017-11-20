@@ -304,6 +304,9 @@ int zmq::socket_base_t::check_protocol (const std::string &protocol_)
 #if defined ZMQ_HAVE_VMCI
     &&  protocol_ != "vmci"
 #endif
+#if defined ZMQ_HAVE_RDMA
+    &&  protocol_ != "rdma"
+#endif
     &&  protocol_ != "udp") {
         errno = EPROTONOSUPPORT;
         return -1;
