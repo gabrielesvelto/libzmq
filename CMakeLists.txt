@@ -21,6 +21,7 @@ set (pkg_config_libs_private "")
 
 option (WITH_OPENPGM "Build with support for OpenPGM" OFF)
 option (WITH_VMCI "Build with support for VMware VMCI socket" OFF)
+option (WITH_RDMA "Build support for the native RDMA transport" OFF)
 
 if (APPLE)
     option (ZMQ_BUILD_FRAMEWORK "Build as OS X framework" OFF)
@@ -633,6 +634,10 @@ if (ZMQ_HAVE_TIPC)
     add_definitions (-DZMQ_HAVE_TIPC)
     list (APPEND cxx-sources tipc_address.cpp tipc_connecter.cpp tipc_listener.cpp)
 endif (ZMQ_HAVE_TIPC)
+
+if (WITH_RDMA)
+    add_definitions (-DWITH_RDMA)
+endif (WITH_RDMA)
 
 #-----------------------------------------------------------------------------
 # source generators

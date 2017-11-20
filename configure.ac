@@ -591,6 +591,31 @@ fi
 
 AM_CONDITIONAL(HAVE_VMCI, test "x$have_vmci_ext" != "xno")
 
+# InfiniBand/RDMA support
+
+AC_ARG_WITH([rdma],
+    [AS_HELP_STRING([--with-rdma],
+        [build libzmq with RDMA support [default=no]])],
+    [with_rdma_ext="$withval"], [with_rdma_ext=no])
+
+# Check for InfiniBand/RDMA libraries and headers
+AS_IF([test "x$with_rdma_ext" != "xno"], [
+    AC_CHECK_LIB([ibverbs], [ibv_open_device], [RDMA_LIBS="-libverbs"],
+        [AC_MSG_ERROR([The libibverbs library is required])])
+    AC_CHECK_LIB([rdmacm], [rdma_get_devices],
+        [RDMA_LIBS="$RDMA_LIBS -lrdmacm"],
+        [AC_MSG_ERROR([The librmacm library is required])])
+
+    AC_CHECK_HEADERS([infiniband/verbs.h], [],
+        [AC_MSG_ERROR([libibverbs headers are missing])])
+    AC_CHECK_HEADERS([rdma/rdma_cma.h], [],
+        [AC_MSG_ERROR([librdmacm headers are missing])])
+
+    LIBS="$RDMA_LIBS $LIBS"
+
+    AC_DEFINE([ZMQ_HAVE_RDMA], [1], [Have InfiniBand/RDMA extension])
+])
+
 # Set -Wall, -Werror and -pedantic
 AC_LANG_PUSH([C++])
 
