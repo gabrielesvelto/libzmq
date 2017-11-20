@@ -158,6 +158,8 @@ src_libzmq_la_SOURCES = \
 	src/raw_decoder.hpp \
 	src/raw_encoder.cpp \
 	src/raw_encoder.hpp \
+	src/rdma_listener.cpp \
+	src/rdma_listener.hpp \
 	src/reaper.cpp \
 	src/reaper.hpp \
 	src/rep.cpp \

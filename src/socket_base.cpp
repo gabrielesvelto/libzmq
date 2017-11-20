@@ -50,6 +50,7 @@
 #include "socket_base.hpp"
 #include "tcp_listener.hpp"
 #include "ipc_listener.hpp"
+#include "rdma_listener.hpp"
 #include "tipc_listener.hpp"
 #include "tcp_connecter.hpp"
 #include "io_thread.hpp"
@@ -634,6 +635,21 @@ int zmq::socket_base_t::bind (const char *addr_)
         options.connected = true;
         return 0;
     }
+
+#if defined ZMQ_HAVE_RDMA
+    if (protocol == "rdma") {
+        rdma_listener_t *listener = new (std::nothrow) rdma_listener_t (
+            io_thread, this, options);
+        alloc_assert(listener);
+        int rc = listener->set_address (address.c_str ());
+        if (rc != 0) {
+            delete listener;
+            return -1;
+        }
+        launch_child (listener);
+        return 0;
+    }
+#endif
 
 #if !defined ZMQ_HAVE_WINDOWS && !defined ZMQ_HAVE_OPENVMS
     if (protocol == "ipc") {
