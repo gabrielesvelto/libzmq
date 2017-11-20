@@ -600,6 +600,9 @@ AC_ARG_WITH([rdma],
 
 # Check for InfiniBand/RDMA libraries and headers
 AS_IF([test "x$with_rdma_ext" != "xno"], [
+    AH_TEMPLATE([ZMQ_HAVE_RDMA_OPTION_ID_REUSEADDR],
+        [Defined to 1 if the RDMA_OPTION_ID_REUSEADDR declaration is present.])
+
     AC_CHECK_LIB([ibverbs], [ibv_open_device], [RDMA_LIBS="-libverbs"],
         [AC_MSG_ERROR([The libibverbs library is required])])
     AC_CHECK_LIB([rdmacm], [rdma_get_devices],
@@ -610,6 +613,11 @@ AS_IF([test "x$with_rdma_ext" != "xno"], [
         [AC_MSG_ERROR([libibverbs headers are missing])])
     AC_CHECK_HEADERS([rdma/rdma_cma.h], [],
         [AC_MSG_ERROR([librdmacm headers are missing])])
+
+    AC_CHECK_DECL([RDMA_OPTION_ID_REUSEADDR],
+        [AC_DEFINE([ZMQ_HAVE_RDMA_OPTION_ID_REUSEADDR], [1])],
+        [AC_DEFINE([ZMQ_HAVE_RDMA_OPTION_ID_REUSEADDR], [0])],
+        [#include <rdma/rdma_cma.h>])
 
     LIBS="$RDMA_LIBS $LIBS"
 
