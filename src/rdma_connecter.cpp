@@ -107,7 +107,7 @@ void zmq::rdma_connecter_t::in_event (fd_t fd_)
     switch (event->event) {
 
     case RDMA_CM_EVENT_ADDR_RESOLVED:
-        err = rdma_resolve_route (id, sm_timeout);
+        err = resolve_route ();
         break;
 
     case RDMA_CM_EVENT_ROUTE_RESOLVED:
@@ -119,7 +119,7 @@ void zmq::rdma_connecter_t::in_event (fd_t fd_)
 
     case RDMA_CM_EVENT_ESTABLISHED:
         //  We established the connection, start the engine object.
-        start_engine ();
+        start_engine ((rdma_engine_t *)(event->id->context));
         break;
 
     case RDMA_CM_EVENT_ADDR_ERROR:
@@ -181,13 +181,29 @@ void zmq::rdma_connecter_t::start_connecting ()
     add_reconnect_timer();
 }
 
-void zmq::rdma_connecter_t::start_engine ()
+int zmq::rdma_connecter_t::resolve_route ()
 {
     //  Create the engine object for this connection.
     rdma_engine_t *engine = new (std::nothrow) rdma_engine_t (id, options,
         true);
     alloc_assert (engine);
 
+    if (!engine->initialized ()) {
+        //  We failed to create an object, abort the connection attempt.
+        delete engine;
+        return -1;
+    }
+
+    //  We store the RDMA engine in the ID context so we will be able to
+    //  retrieve it easily when receiving RDMA connection manager messages.
+    id->context = engine;
+
+    //  Resolve the route to the other end-point.
+    return rdma_resolve_route (id, sm_timeout);
+}
+
+void zmq::rdma_connecter_t::start_engine (rdma_engine_t *engine_)
+{
     //  Remove the event channel from the polling set and remove the RDMA
     //  connection manager ID from the connecter, it will be passed together
     //  with the associated event channel to the engine.
@@ -197,7 +213,7 @@ void zmq::rdma_connecter_t::start_engine ()
     channel = NULL;
 
     //  Attach the engine to the corresponding session object.
-    send_attach (session, engine);
+    send_attach (session, engine_);
 
     //  Shut the connecter down.
     terminate ();

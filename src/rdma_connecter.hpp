@@ -41,6 +41,7 @@
 #include "own.hpp"
 #include "stdint.hpp"
 #include "io_object.hpp"
+#include "rdma_engine.hpp"
 
 namespace zmq
 {
@@ -71,8 +72,12 @@ namespace zmq
         //  Internal function to start the actual connection establishment.
         void start_connecting ();
 
+        //  Internal function that creates the RDMA engine object and resolves
+        //  the route to the other end-point.
+        int resolve_route ();
+
         //  Internal function to start the RDMA engine object.
-        void start_engine ();
+        void start_engine (rdma_engine_t *engine_);
 
         //  Internal function to add a reconnect timer
         void add_reconnect_timer();
