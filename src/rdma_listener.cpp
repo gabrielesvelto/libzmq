@@ -35,6 +35,7 @@
 
 #include <string.h>
 
+#include "rdma_engine.hpp"
 #include "rdma_listener.hpp"
 #include "io_thread.hpp"
 #include "session_base.hpp"
@@ -90,24 +91,45 @@ void zmq::rdma_listener_t::process_term (int linger_)
 void zmq::rdma_listener_t::in_event ()
 {
     rdma_cm_event *event = NULL;
-    int rc = 0;
+    rdma_engine_t *engine;
+    io_thread_t *io_thread;
+    session_base_t *session;
+    int rc;
 
     rc = rdma_get_cm_event (channel, &event);
     errno_assert (rc == 0);
 
     switch (event->event) {
+
     case RDMA_CM_EVENT_CONNECT_REQUEST:
         accept (event);
         break;
+
     case RDMA_CM_EVENT_ESTABLISHED:
-        // TBD: Launch the rdma engine object.
+        //  Choose I/O thread to run connecter in. Given that we are already
+        //  running in an I/O thread, there must be at least one available.
+        io_thread = choose_io_thread (options.affinity);
+        zmq_assert (io_thread);
+
+        //  Retreive the engine from the RDMA connection manager ID.
+        engine = (rdma_engine_t *) event->id->context;
+
+        //  Create and launch a session object.
+        session = session_base_t::create (io_thread, false, socket, options,
+            NULL, NULL);
+        errno_assert (session);
+        session->inc_seqnum ();
+        launch_child (session);
+        send_attach (session, engine, false);
         break;
+
     default:
         //  Unhandled event type, ignore this event.
         ;
+
     }
 
-    rc = rdma_ack_cm_event(event);
+    rc = rdma_ack_cm_event (event);
     errno_assert (rc == 0);
 }
 
@@ -156,10 +178,30 @@ int zmq::rdma_listener_t::set_address (const char *addr_)
     return 0;
 }
 
-rdma_cm_id *zmq::rdma_listener_t::accept (const rdma_cm_event *event)
+void zmq::rdma_listener_t::accept (const rdma_cm_event *event_)
 {
-    //  TBD: Create the rdma engine, use the associated queue-pair to accept
-    return NULL;
+    rdma_conn_param conn_param;
+    rdma_cm_id *id = event_->id;
+    int rc;
+
+    rdma_engine_t *engine = new (std::nothrow) rdma_engine_t (id, options);
+
+    if (!engine->initialized ()) {
+        //  We failed to create an object, refuse the connection.
+        delete engine;
+        rc = rdma_reject (id, NULL, 0);
+        errno_assert (rc == 0);
+        return;
+    }
+
+    //  Store the newly created engine in the RDMA ID context pointer, we will
+    //  read the engine from that field when the connection is established.
+    id->context = (void *) engine;
+
+    //  Accept the connection.
+    memset (&conn_param, 0, sizeof(rdma_conn_param));
+    rc = rdma_accept (id, &conn_param);
+    errno_assert (rc == 0);
 }
 
 #endif //  ZMQ_HAVE_RDMA

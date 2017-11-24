@@ -68,12 +68,10 @@ namespace zmq
         //  Handlers for I/O events.
         void in_event ();
 
-        //  Accept the new connection. Returns the RDMA ID of the newly created
-        //  connection. The function may return NULL if the connection attempt
-        //  fails. After the accept () call the connection is not established
-        //  yet, it will be established only after receiving an RDMA event of
-        //  type RDMA_CM_EVENT_ESTABLISHED.
-        rdma_cm_id *accept (const rdma_cm_event *event);
+        //  Accept the new connection request. After the accept () call the
+        //  connection is not established yet, it will be established only
+        // after receiving an RDMA event of type RDMA_CM_EVENT_ESTABLISHED.
+        void accept (const rdma_cm_event *event_);
 
         //  Address to listen on, the RDMA connection manager uses plain IPv4
         //  or IPv6 address so we can re-use tcp_address_t for it.
