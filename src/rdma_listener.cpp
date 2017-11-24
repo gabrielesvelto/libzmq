@@ -188,7 +188,8 @@ void zmq::rdma_listener_t::accept (const rdma_cm_event *event_)
     rdma_cm_id *id = event_->id;
     int rc;
 
-    rdma_engine_t *engine = new (std::nothrow) rdma_engine_t (id, options);
+    rdma_engine_t *engine = new (std::nothrow) rdma_engine_t (id, options,
+        false);
 
     if (!engine->initialized ()) {
         //  We failed to create an object, refuse the connection.

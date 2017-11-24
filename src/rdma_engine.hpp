@@ -59,7 +59,8 @@ namespace zmq
     {
     public:
 
-        rdma_engine_t (rdma_cm_id *id_, const options_t &options_);
+        rdma_engine_t (rdma_cm_id *id_, const options_t &options_,
+                       bool active_);
         ~rdma_engine_t ();
 
         //  i_engine interface implementation.
@@ -99,7 +100,7 @@ namespace zmq
         int est_rx_queue_depth ();
         int est_tx_queue_depth ();
 
-        // Internal constants
+        //  Internal constants
         enum {
             def_datagram_size = 1024, //  Default size of a datagram.
             def_rx_queue_depth = 32,  //  Default depth of the RX queue.
@@ -130,10 +131,15 @@ namespace zmq
         char *rx_buffer;
         ibv_mr *rx_mr;
 
-        // True if the object was successfully initialized
+        //  True if the object represents the active side of a connection.
+        bool active_p;
+
+        //  True if the object was successfully initialized.
         bool initialized_p;
 
-        handle_t handle;
+        //  Queue-pair completion queue and RDMA CM ID event channel handles.
+        handle_t cq_handle;
+        handle_t cc_handle;
 
         unsigned char *inpos;
         size_t insize;

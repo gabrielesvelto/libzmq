@@ -184,11 +184,23 @@ void zmq::rdma_connecter_t::start_connecting ()
 void zmq::rdma_connecter_t::start_engine ()
 {
     //  Create the engine object for this connection.
-    rdma_engine_t *engine = new (std::nothrow) rdma_engine_t (id, options);
+    rdma_engine_t *engine = new (std::nothrow) rdma_engine_t (id, options,
+        true);
     alloc_assert (engine);
+
+    //  Remove the event channel from the polling set and remove the RDMA
+    //  connection manager ID from the connecter, it will be passed together
+    //  with the associated event channel to the engine.
+    rm_fd (handle);
+    handle = NULL;
+    id = NULL;
+    channel = NULL;
 
     //  Attach the engine to the corresponding session object.
     send_attach (session, engine);
+
+    //  Shut the connecter down.
+    terminate ();
 }
 
 void zmq::rdma_connecter_t::add_reconnect_timer ()

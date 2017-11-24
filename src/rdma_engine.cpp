@@ -54,7 +54,8 @@
 #include "config.hpp"
 #include "err.hpp"
 
-zmq::rdma_engine_t::rdma_engine_t (rdma_cm_id *id_, const options_t &options_) :
+zmq::rdma_engine_t::rdma_engine_t (rdma_cm_id *id_, const options_t &options_,
+    bool active_) :
     id (id_),
     pd (NULL),
     comp_channel (NULL),
@@ -65,6 +66,7 @@ zmq::rdma_engine_t::rdma_engine_t (rdma_cm_id *id_, const options_t &options_) :
     rx_buffer_size (0),
     rx_buffer (NULL),
     rx_mr (NULL),
+    active_p (active_),
     initialized_p (false),
     inpos (NULL),
     insize (0),
@@ -169,6 +171,14 @@ zmq::rdma_engine_t::~rdma_engine_t ()
     }
 
     delete [] rx_buffer;
+
+    if (active_p) {
+        rdma_event_channel *channel = id->channel;
+
+        rc = rdma_destroy_id (id);
+        errno_assert (rc == 0);
+        rdma_destroy_event_channel (channel);
+    }
 }
 
 void zmq::rdma_engine_t::plug (io_thread_t *io_thread_,
@@ -188,9 +198,15 @@ void zmq::rdma_engine_t::plug (io_thread_t *io_thread_,
     //  Connect to I/O threads poller object, we use the completion channel's
     //  file descriptor for signaling events.
     io_object_t::plug (io_thread_);
-    handle = add_fd (comp_channel->fd);
-    set_pollin (handle);
-    set_pollout (handle);
+    cq_handle = add_fd (comp_channel->fd);
+    set_pollin (cq_handle);
+
+    //  If we're on the active side of a connection we also add the RDMA
+    //  connection manager ID to the poller set.
+    if (active_p) {
+        cc_handle = add_fd (id->channel->fd);
+        set_pollin (cc_handle);
+    }
 
     //  Flush all the data that may have been already received downstream.
     in_event ();
@@ -202,7 +218,11 @@ void zmq::rdma_engine_t::unplug ()
     plugged = false;
 
     //  Cancel all fd subscriptions.
-    rm_fd (handle);
+    rm_fd (cq_handle);
+
+    if (active_p) {
+        rm_fd (cc_handle);
+    }
 
     //  Disconnect from I/O threads poller object.
     io_object_t::unplug ();
@@ -219,6 +239,9 @@ void zmq::rdma_engine_t::terminate ()
     unplug ();
     delete this;
 }
+
+//  TODO: This event will be completely overhauled as it will need to handle
+//  both reads and writes.
 
 void zmq::rdma_engine_t::in_event ()
 {
@@ -254,7 +277,7 @@ void zmq::rdma_engine_t::in_event ()
 
             //  This may happen if queue limits are in effect.
             if (plugged)
-                reset_pollin (handle);
+                reset_pollin (cq_handle);
         }
 
         //  Adjust the buffer.
@@ -275,6 +298,9 @@ void zmq::rdma_engine_t::in_event ()
         error ();
 }
 
+//  TODO: We will get rid of this method as it will never be called, its
+//  functionality will be merged into in_event().
+
 void zmq::rdma_engine_t::out_event ()
 {
     //  If write buffer is empty, try to read new data from the encoder.
@@ -290,9 +316,8 @@ void zmq::rdma_engine_t::out_event ()
             return;
         }
 
-        //  If there is no data to send, stop polling for output.
+        //  If there is no data to send return
         if (outsize == 0) {
-            reset_pollout (handle);
             return;
         }
     }
@@ -316,21 +341,23 @@ void zmq::rdma_engine_t::out_event ()
 
 void zmq::rdma_engine_t::activate_out ()
 {
-    set_pollout (handle);
+    //  We set POLLIN as completed write events are read from the completion
+    //  queue and there is no POLLOUT event to indicate when we can send data.
+    set_pollin (cq_handle);
 
     //  Speculative write: The assumption is that at the moment new message
-    //  was sent by the user the socket is probably available for writing.
-    //  Thus we try to write the data to socket avoiding polling for POLLOUT.
-    //  Consequently, the latency should be better in request/reply scenarios.
-    out_event ();
+    //  was sent by the user the queue-pair is probably available for writing.
+
+    //  TODO: Implement the speculative write.
 }
 
 void zmq::rdma_engine_t::activate_in ()
 {
-    set_pollin (handle);
+    set_pollin (cq_handle);
 
     //  Speculative read.
-    in_event ();
+
+    //  TODO: Implement the speculative read.
 }
 
 void zmq::rdma_engine_t::error ()
@@ -343,13 +370,13 @@ void zmq::rdma_engine_t::error ()
 
 int zmq::rdma_engine_t::write (const void *data_, size_t size_)
 {
-    // TBD: Implement
+    // TODO: Implement
     return 0;
 }
 
 int zmq::rdma_engine_t::read (void *data_, size_t size_)
 {
-    // TBD: Implement
+    // TODO: Implement
     return 0;
 }
 
