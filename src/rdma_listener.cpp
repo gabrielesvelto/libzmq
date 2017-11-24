@@ -130,6 +130,14 @@ void zmq::rdma_listener_t::in_event (fd_t fd_)
         send_attach (session, engine, false);
         break;
 
+    case RDMA_CM_EVENT_DISCONNECTED:
+        //  One of the IDs we created has been disconnected.
+        engine = (rdma_engine_t *) event->id->context;
+
+        engine->unplug ();
+        delete engine;
+        break;
+
     default:
         ; //  Ignore all other events.
 
@@ -190,8 +198,10 @@ void zmq::rdma_listener_t::accept (const rdma_cm_event *event_)
 
     rdma_engine_t *engine = new (std::nothrow) rdma_engine_t (id, options,
         false);
+    alloc_assert (engine);
+    rc = engine->init ();
 
-    if (!engine->initialized ()) {
+    if (rc) {
         //  We failed to create an object, refuse the connection.
         delete engine;
         rc = rdma_reject (id, NULL, 0);
@@ -205,6 +215,8 @@ void zmq::rdma_listener_t::accept (const rdma_cm_event *event_)
 
     //  Accept the connection.
     memset (&conn_param, 0, sizeof(rdma_conn_param));
+    conn_param.retry_count = rdma_retry_count;
+    conn_param.rnr_retry_count = rdma_rnr_retry_count;
     rc = rdma_accept (id, &conn_param);
     errno_assert (rc == 0);
 }

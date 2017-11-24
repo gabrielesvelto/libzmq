@@ -97,16 +97,6 @@ namespace zmq
         //  Destroy the RDMA connection manager id and event channel.
         void close ();
 
-        //  Timeout for the subnet manager.
-        static const int sm_timeout = 3000;
-
-        //  Number of retries for failed data transfer operations
-        static const int retry_count = 5;
-
-        //  Number of retries for failed send operations after receiving a
-        //  receiver not ready (RNR) error.
-        static const int rnr_retry_count = 7;
-
         //  Address to connect to.
         tcp_address_t address;
 

@@ -90,7 +90,17 @@ namespace zmq
         //  global mutex. The original implementation of a Windows signaler
         //  socket used port 5905 instead of letting the OS choose a free port.
         //  https://github.com/zeromq/libzmq/issues/1542
-        signaler_port = 0
+        signaler_port = 0,
+
+        //  RDMA subnet-manager timeout.
+        rdma_sm_timeout = 3000,
+
+        //  Number of retries for failed RDMA data transfer operations.
+        rdma_retry_count = 5,
+
+        //  Number of retries for failed RDMA send operations after receiving a
+        //  receiver not ready (RNR) error.
+        rdma_rnr_retry_count = 7
     };
 
 }

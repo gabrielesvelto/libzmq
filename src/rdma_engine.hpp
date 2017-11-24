@@ -63,6 +63,8 @@ namespace zmq
                        bool active_);
         ~rdma_engine_t ();
 
+        int init ();
+
         //  i_engine interface implementation.
         void plug (zmq::io_thread_t *io_thread_,
            zmq::session_base_t *session_);
@@ -73,38 +75,39 @@ namespace zmq
 
         //  i_poll_events interface implementation.
         void in_event (fd_t fd_);
-        void out_event (fd_t fd_);
-
-        //  Returns true if the object was correctly initialized, false if an
-        //  error occurred during initialization
-        bool initialized () { return initialized_p; }
 
     private:
+
+        //  Handle completion channel and completion queue events.
+        void qp_event ();
+        bool id_event ();
+
+        //  Write data to the send buffer.
+        void fill_snd_buffer ();
+
+        //  Post as many send operations as possible.
+        void post_send_wrs ();
 
         //  Function to handle network disconnections.
         void error ();
 
-        //  Writes data to the queue-pair. Returns the number of bytes actually
-        //  written (even zero is to be considered to be a success). In case
-        //  of error or orderly shutdown by the other peer -1 is returned.
-        int write (const void *data_, size_t size_);
-
-        //  Writes data to the queue-pair (up to 'size' bytes). Returns the
-        //  number of bytes actually read (even zero is to be considered to be
-        //  a success). In case of error or orderly shutdown by the other
-        //  peer -1 is returned.
-        int read (void *data_, size_t size_);
+        //  Functions used to manipulate the circular send buffer.
+        uint32_t snd_avail ();
+        void update_snd_avail (uint32_t size_);
+        uint32_t snd_pending ();
+        void update_snd_pending (uint32_t size_);
+        void update_snd_posted (uint32_t off_);
+        uint32_t snd_wrs_avail ();
 
         //  Helper functions for sizing the connection parameters.
-        int est_rx_buffer_size ();
-        int est_rx_queue_depth ();
-        int est_tx_queue_depth ();
+        int est_buffer_size (int def_qd_, int buf_size_);
+        int est_queue_depth (int queue_depth_, int buf_size_);
 
         //  Internal constants
         enum {
             def_datagram_size = 1024, //  Default size of a datagram.
-            def_rx_queue_depth = 32,  //  Default depth of the RX queue.
-            def_tx_queue_depth = 32   //  Default depth of the TX queue.
+            def_rcv_queue_depth = 32,  //  Default depth of the RX queue.
+            def_snd_queue_depth = 32   //  Default depth of the TX queue.
         };
 
         //  Underlying RDMA ID.
@@ -122,31 +125,42 @@ namespace zmq
         //  Queue-pair.
         ibv_qp *qp;
 
-        //  Depth of the transfer and receive queues.
-        int tx_queue_depth;
-        int rx_queue_depth;
+        //  Depth of the send and receive queues.
+        int rcv_queue_depth;
+        int snd_queue_depth;
 
         //  Receive buffer, size and associated memory region.
-        size_t rx_buffer_size;
-        char *rx_buffer;
-        ibv_mr *rx_mr;
+        size_t rcv_buffer_size;
+        unsigned char *rcv_buffer;
+        ibv_mr *rcv_mr;
+
+        //  Send buffer, size and associated memory region.
+        size_t snd_buffer_size;
+        unsigned char *snd_buffer;
+        ibv_mr *snd_mr;
+
+        //  Offsets in the circular send buffer. They point respectively to
+        //  the available space in the buffer (avail), to the data written by
+        //  the encoder and awaiting to be sent (pending) and to the data that
+        //  has already been posted on the queue-pair (posted).
+        uint32_t snd_avail_off;
+        uint32_t snd_pending_off;
+        uint32_t snd_posted_off;
+
+        //  Number of send work requested that have been posted / completed.
+        uint32_t snd_wr_id;
+        uint32_t snd_compl_wr_id;
 
         //  True if the object represents the active side of a connection.
         bool active_p;
 
-        //  True if the object was successfully initialized.
-        bool initialized_p;
-
         //  Queue-pair completion queue and RDMA CM ID event channel handles.
-        handle_t cq_handle;
-        handle_t cc_handle;
+        handle_t qp_handle;
+        handle_t id_handle;
 
-        unsigned char *inpos;
-        size_t insize;
+
+        //  Data encoder and decoder.
         decoder_t decoder;
-
-        unsigned char *outpos;
-        size_t outsize;
         encoder_t encoder;
 
         //  The session this engine is attached to.

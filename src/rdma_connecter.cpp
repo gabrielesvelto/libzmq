@@ -112,8 +112,8 @@ void zmq::rdma_connecter_t::in_event (fd_t fd_)
 
     case RDMA_CM_EVENT_ROUTE_RESOLVED:
         memset (&conn_param, 0, sizeof(conn_param));
-        conn_param.retry_count = retry_count;
-        conn_param.rnr_retry_count = rnr_retry_count;
+        conn_param.retry_count = rdma_retry_count;
+        conn_param.rnr_retry_count = rdma_rnr_retry_count;
         err = rdma_connect (id, &conn_param);
         break;
 
@@ -165,7 +165,7 @@ void zmq::rdma_connecter_t::start_connecting ()
         set_pollin (handle);
 
         //  Resolve the end-point address.
-        rc = rdma_resolve_addr (id, NULL, address.addr (), sm_timeout);
+        rc = rdma_resolve_addr (id, NULL, address.addr (), rdma_sm_timeout);
 
         if (rc == 0)
             return; //  Everything went fine.
@@ -183,13 +183,16 @@ void zmq::rdma_connecter_t::start_connecting ()
 
 int zmq::rdma_connecter_t::resolve_route ()
 {
+    int rc;
+
     //  Create the engine object for this connection.
     rdma_engine_t *engine = new (std::nothrow) rdma_engine_t (id, options,
         true);
     alloc_assert (engine);
+    rc = engine->init ();
 
-    if (!engine->initialized ()) {
-        //  We failed to create an object, abort the connection attempt.
+    if (rc) {
+        //  We failed to initialize the engine, abort the connection attempt.
         delete engine;
         return -1;
     }
@@ -199,7 +202,7 @@ int zmq::rdma_connecter_t::resolve_route ()
     id->context = engine;
 
     //  Resolve the route to the other end-point.
-    return rdma_resolve_route (id, sm_timeout);
+    return rdma_resolve_route (id, rdma_sm_timeout);
 }
 
 void zmq::rdma_connecter_t::start_engine (rdma_engine_t *engine_)
