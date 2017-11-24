@@ -174,7 +174,8 @@ int zmq::rdma_engine_t::init ()
     comp_channel = ibv_create_comp_channel (id->verbs);
     errno_assert (comp_channel);
 
-    //  Create the completion queue.
+    //  Create the completion queue, it's depth is calculated based on the
+    //  size of the send and receive buffers.
     rcv_queue_depth = est_queue_depth (def_rcv_queue_depth, rcv_buffer_size);
     snd_queue_depth = est_queue_depth (def_snd_queue_depth, snd_buffer_size);
     cq = ibv_create_cq (id->verbs, rcv_queue_depth + snd_queue_depth, NULL,
@@ -188,8 +189,7 @@ int zmq::rdma_engine_t::init ()
     posix_assert (rc);
 
     //  Create the queue-pair, we'll use a shared completion queue for send and
-    //  receive operations and the watermarks to adjust the depth of the
-    //  transfer and receive queues.
+    //  receive operations.
     memset (&qp_init_attr, 0, sizeof (ibv_qp_init_attr));
 
     qp_init_attr.send_cq = cq;
@@ -356,9 +356,12 @@ void zmq::rdma_engine_t::qp_event ()
         if (wc.opcode & IBV_WC_RECV) {
             //  TODO: Handle receives.
         } else {
+            //  Extract the send work request ID and the buffer offset from the
+            //  work completion event wr_id field.
             uint32_t wr_id = wc.wr_id >> 32;
             uint32_t off = wc.wr_id & 0xffffffff;
 
+            //  Record the completed send operations.
             snd_compl_wr_id = wr_id;
             update_snd_posted (off);
         }
@@ -551,7 +554,7 @@ void zmq::rdma_engine_t::update_snd_posted (uint32_t off_)
     }
 }
 
-//  Return the number of available send work-requests.
+//  Returns the number of available send work-requests.
 
 uint32_t zmq::rdma_engine_t::snd_wrs_avail ()
 {
@@ -578,7 +581,8 @@ int zmq::rdma_engine_t::est_buffer_size (int def_qd_, int buf_size_)
 //  Returns a reasonable depth for the send/receive queue depending on the
 //  send/receive buffer size. The number of pending operations will also be
 //  checked against the amount supported by the HCA. queue_depth is the desired
-//  queue depth, buf_size the size of the associated buffer.
+//  queue depth, buf_size the size of the associated buffer. The returned
+//  buffer is always a multiple of def_datagram_size.
 
 int zmq::rdma_engine_t::est_queue_depth (int queue_depth_, int buf_size_)
 {

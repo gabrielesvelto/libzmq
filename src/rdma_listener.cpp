@@ -134,6 +134,8 @@ void zmq::rdma_listener_t::in_event (fd_t fd_)
         //  One of the IDs we created has been disconnected.
         engine = (rdma_engine_t *) event->id->context;
 
+        //  FIXME: This cannot be done in this context, the engine object
+        //  itself should call the unplug () method.
         engine->unplug ();
         delete engine;
         break;
