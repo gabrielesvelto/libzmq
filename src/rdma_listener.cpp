@@ -67,6 +67,13 @@ zmq::rdma_listener_t::rdma_listener_t (io_thread_t *io_thread_,
 
 zmq::rdma_listener_t::~rdma_listener_t ()
 {
+    int rc;
+
+    if (id) {
+        rc = rdma_destroy_id (id);
+        errno_assert (rc == 0);
+    }
+
     if (channel)
         rdma_destroy_event_channel (channel);
 }
@@ -124,8 +131,7 @@ void zmq::rdma_listener_t::in_event ()
         break;
 
     default:
-        //  Unhandled event type, ignore this event.
-        ;
+        ; //  Ignore all other events.
 
     }
 
@@ -145,15 +151,13 @@ int zmq::rdma_listener_t::set_address (const char *addr_)
 
     //  Create an event channel for receiving RDMA connection manager messages.
     channel = rdma_create_event_channel ();
-    if (!channel) {
-        //  Could not create the event channel.
+    if (!channel)
         return -1;
-    }
 
     // Create the RDMA CM ID that will be used to listen on.
     rc = rdma_create_id (channel, &id, NULL, RDMA_PS_TCP);
     if (rc != 0)
-        return rc;
+        return -1;
 
 #if ZMQ_HAVE_DECL_RDMA_OPTION_ID_REUSEADDR
     //  Allow reusing of the address, this is not always presented in the
