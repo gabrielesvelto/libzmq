@@ -207,9 +207,6 @@ void zmq::rdma_engine_t::plug (io_thread_t *io_thread_,
         cc_handle = add_fd (id->channel->fd);
         set_pollin (cc_handle);
     }
-
-    //  Flush all the data that may have been already received downstream.
-    in_event ();
 }
 
 void zmq::rdma_engine_t::unplug ()
@@ -243,7 +240,7 @@ void zmq::rdma_engine_t::terminate ()
 //  TODO: This event will be completely overhauled as it will need to handle
 //  both reads and writes.
 
-void zmq::rdma_engine_t::in_event ()
+void zmq::rdma_engine_t::in_event (fd_t fd_)
 {
     bool disconnection = false;
 
@@ -301,7 +298,7 @@ void zmq::rdma_engine_t::in_event ()
 //  TODO: We will get rid of this method as it will never be called, its
 //  functionality will be merged into in_event().
 
-void zmq::rdma_engine_t::out_event ()
+void zmq::rdma_engine_t::out_event (fd_t fd_)
 {
     //  If write buffer is empty, try to read new data from the encoder.
     if (!outsize) {

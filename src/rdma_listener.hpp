@@ -66,7 +66,7 @@ namespace zmq
         void process_term (int linger_);
 
         //  Handlers for I/O events.
-        void in_event ();
+        void in_event (fd_t fd_);
 
         //  Accept the new connection request. After the accept () call the
         //  connection is not established yet, it will be established only

@@ -96,7 +96,7 @@ void zmq::rdma_connecter_t::process_plug ()
 //  TODO: Deal with disconnections and other errors, two messages should be
 //  dealt with, RDMA_CM_EVENT_DISCONNECTED and RDMA_CM_EVENT_UNREACHABLE.
 
-void zmq::rdma_connecter_t::in_event ()
+void zmq::rdma_connecter_t::in_event (fd_t fd_)
 {
     rdma_conn_param conn_param;
     rdma_cm_event *event;

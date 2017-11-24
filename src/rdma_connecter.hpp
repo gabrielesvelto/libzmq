@@ -65,7 +65,7 @@ namespace zmq
         void process_plug ();
 
         //  Handlers for I/O events.
-        void in_event ();
+        void in_event (fd_t fd_);
         void timer_event (handle_t handle_);
 
         //  Internal function to start the actual connection establishment.

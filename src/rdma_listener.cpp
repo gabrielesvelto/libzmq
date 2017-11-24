@@ -95,7 +95,7 @@ void zmq::rdma_listener_t::process_term (int linger_)
     own_t::process_term (linger_);
 }
 
-void zmq::rdma_listener_t::in_event ()
+void zmq::rdma_listener_t::in_event (fd_t fd_)
 {
     rdma_cm_event *event = NULL;
     rdma_engine_t *engine;
