@@ -69,6 +69,11 @@ zmq::rdma_engine_t::rdma_engine_t (rdma_cm_id *id_, const options_t &options_,
     snd_buffer_size (est_buffer_size (def_snd_queue_depth, options_.sndbuf)),
     snd_buffer (NULL),
     snd_mr (NULL),
+    rcv_sizes (NULL),
+    rcv_off (0),
+    rcv_pending_id (0),
+    rcv_posted_id (0),
+    rcv_avail_id (0),
     snd_avail_off (0),
     snd_pending_off (0),
     snd_posted_off (0),
@@ -153,6 +158,9 @@ int zmq::rdma_engine_t::init ()
     if (rcv_mr == NULL)
         return errno;
 
+    rcv_sizes =
+        new (std::nothrow) uint32_t[rcv_buffer_size / def_datagram_size];
+
     //  Create the send buffer and register it.
     snd_buffer = new (std::nothrow) unsigned char[snd_buffer_size];
     alloc_assert (snd_buffer);
@@ -201,8 +209,12 @@ int zmq::rdma_engine_t::init ()
     if (rc != 0)
         return rc;
 
-    //  TODO: Post the receive operations before connecting to the other
-    //  end-point to prevent the messages from being refused.
+    //  Post immediately all the available receive work requests, this will
+    //  prevent incoming packets from being dropped after the connection is
+    //  established. This could happen if the sender would send a message
+    //  before the receiver could post its receive work requests.
+    post_rcv_wrs ();
+
     return 0;
 }
 
@@ -431,12 +443,67 @@ void zmq::rdma_engine_t::post_send_wrs ()
     }
 }
 
+void zmq::rdma_engine_t::post_rcv_wrs ()
+{
+    int rc;
+
+    //  TODO: Create multiple work requests at once and issue all of them with
+    //  with a single ibv_post_recv () command.
+
+    while (rcv_wrs_avail () > 0) {
+        ibv_recv_wr *bad_wr;
+        ibv_recv_wr wr;
+        ibv_sge sge;
+
+        wr.wr_id = rcv_avail_id;
+        wr.next = NULL;
+        wr.sg_list = &sge;
+        wr.num_sge = 1;
+
+        sge.addr = (uint64_t)rcv_buffer + (rcv_avail_id * def_datagram_size);
+        sge.length = def_datagram_size;
+        sge.lkey = rcv_mr->lkey;
+
+        //  Post the receive operation.
+        rc = ibv_post_recv (qp, &wr, &bad_wr);
+        posix_assert (rc);
+
+        //  Adjust the pending buffer pointer and WR number.
+        update_rcv_avail_id (1);
+    }
+}
+
 void zmq::rdma_engine_t::error ()
 {
     zmq_assert (session);
     session->detach ();
     unplug ();
     delete this;
+}
+
+//  Returns the number of available receive work-requests.
+
+uint32_t zmq::rdma_engine_t::rcv_wrs_avail ()
+{
+    if (rcv_avail_id < rcv_pending_id) {
+        return rcv_pending_id - rcv_avail_id;
+    } else {
+        return ((rcv_buffer_size / def_datagram_size) - rcv_avail_id)
+            + rcv_pending_id;
+    }
+}
+
+//  Update the available receive work request id to reflect the number of work
+//  requests that were posted.
+
+void zmq::rdma_engine_t::update_rcv_avail_id (uint32_t posted_)
+{
+    rcv_avail_id += posted_;
+
+    //  Wrap around if we went past the end of the buffer.
+    if (rcv_avail_id > (rcv_buffer_size / def_datagram_size)) {
+        rcv_avail_id -= (rcv_buffer_size / def_datagram_size);
+    }
 }
 
 uint32_t zmq::rdma_engine_t::snd_avail ()

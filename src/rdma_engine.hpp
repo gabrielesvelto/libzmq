@@ -88,10 +88,17 @@ namespace zmq
         //  Post as many send operations as possible.
         void post_send_wrs ();
 
-        //  Function to handle network disconnections.
+        //  Post as many receive operations as possible.
+        void post_rcv_wrs ();
+
+        //  Method used to handle network disconnections.
         void error ();
 
-        //  Functions used to manipulate the circular send buffer.
+        //  Methods used to manipulate the circular receive buffer.
+        uint32_t rcv_wrs_avail ();
+        void update_rcv_avail_id (uint32_t posted_);
+
+        //  Methods used to manipulate the circular send buffer.
         uint32_t snd_avail ();
         void update_snd_avail (uint32_t size_);
         uint32_t snd_pending ();
@@ -138,6 +145,12 @@ namespace zmq
         size_t snd_buffer_size;
         unsigned char *snd_buffer;
         ibv_mr *snd_mr;
+
+        uint32_t *rcv_sizes;
+        uint32_t rcv_off;
+        uint32_t rcv_pending_id;
+        uint32_t rcv_posted_id;
+        uint32_t rcv_avail_id;
 
         //  Offsets in the circular send buffer. They point respectively to
         //  the available space in the buffer (avail), to the data written by
