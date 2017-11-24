@@ -579,6 +579,16 @@ void zmq::session_base_t::start_connecting (bool wait_)
         return;
     }
 
+#if defined ZMQ_HAVE_RDMA
+    if (protocol == "rdma") {
+        rdma_connecter_t *connecter = new (std::nothrow) rdma_connecter_t (
+            io_thread, this, options, address.c_str (), wait_);
+        alloc_assert(connecter);
+        launch_child (connecter);
+        return;
+    }
+#endif
+
 #if !defined ZMQ_HAVE_WINDOWS && !defined ZMQ_HAVE_OPENVMS
     if (addr->protocol == "ipc") {
         ipc_connecter_t *connecter = new (std::nothrow) ipc_connecter_t (

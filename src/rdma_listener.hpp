@@ -34,11 +34,11 @@
 
 #if defined ZMQ_HAVE_RDMA
 
+#include "address.hpp"
 #include "fd.hpp"
 #include "own.hpp"
 #include "stdint.hpp"
 #include "io_object.hpp"
-#include "tcp_address.hpp"
 
 #include <rdma/rdma_cma.h>
 
