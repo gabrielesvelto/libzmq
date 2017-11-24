@@ -86,17 +86,22 @@ namespace zmq
         void fill_snd_buffer ();
 
         //  Post as many send operations as possible.
-        void post_send_wrs ();
+        void post_snd_wrs ();
 
         //  Post as many receive operations as possible.
         void post_rcv_wrs ();
+
+        //  Read received data into the decoder.
+        void drain_rcv_buffer ();
 
         //  Method used to handle network disconnections.
         void error ();
 
         //  Methods used to manipulate the circular receive buffer.
+        uint32_t rcv_pending ();
         uint32_t rcv_wrs_avail ();
         void update_rcv_avail_id (uint32_t posted_);
+        void update_rcv_posted_id (uint32_t received_);
 
         //  Methods used to manipulate the circular send buffer.
         uint32_t snd_avail ();
@@ -104,7 +109,6 @@ namespace zmq
         uint32_t snd_pending ();
         void update_snd_pending (uint32_t size_);
         void update_snd_posted (uint32_t off_);
-        uint32_t snd_wrs_avail ();
 
         //  Helper functions for sizing the connection parameters.
         int est_buffer_size (int def_qd_, int buf_size_);
@@ -160,9 +164,16 @@ namespace zmq
         uint32_t snd_pending_off;
         uint32_t snd_posted_off;
 
-        //  Number of send work requested that have been posted / completed.
-        uint32_t snd_wr_id;
-        uint32_t snd_compl_wr_id;
+        //  Available, last posted and last completed send work requests.
+        uint32_t avail_snd_wr;
+        uint32_t posted_snd_wr;
+        uint32_t compl_snd_wr;
+
+        //  True if there is data available to be sent or room to receive more
+        //  data. When both are false the POLLIN flag on the queue-pair handle
+        //  can be reset to stop polling it.
+        bool snd_enabled;
+        bool rcv_enabled;
 
         //  True if the object represents the active side of a connection.
         bool active_p;

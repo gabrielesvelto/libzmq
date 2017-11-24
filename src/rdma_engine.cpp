@@ -77,8 +77,11 @@ zmq::rdma_engine_t::rdma_engine_t (rdma_cm_id *id_, const options_t &options_,
     snd_avail_off (0),
     snd_pending_off (0),
     snd_posted_off (0),
-    snd_wr_id (0),
-    snd_compl_wr_id (0),
+    avail_snd_wr (0),
+    posted_snd_wr (1), //  Skip the first id so that it's different from compl.
+    compl_snd_wr (0),
+    snd_enabled (true),
+    rcv_enabled (true),
     active_p (active_),
     decoder (in_batch_size, options_.maxmsgsize),
     encoder (out_batch_size),
@@ -215,6 +218,9 @@ int zmq::rdma_engine_t::init ()
     //  before the receiver could post its receive work requests.
     post_rcv_wrs ();
 
+    //  The number of available send work requests matches the queue depth.
+    avail_snd_wr = snd_queue_depth;
+
     return 0;
 }
 
@@ -237,6 +243,8 @@ void zmq::rdma_engine_t::plug (io_thread_t *io_thread_,
     io_object_t::plug (io_thread_);
     qp_handle = add_fd (comp_channel->fd);
     set_pollin (qp_handle);
+    snd_enabled = true;
+    rcv_enabled = true;
 
     //  If we're on the active side of a connection we also add the RDMA
     //  connection manager ID to the poller set.
@@ -302,21 +310,22 @@ void zmq::rdma_engine_t::activate_out ()
     //  We set POLLIN as completed write events are read from the completion
     //  queue and there is no POLLOUT event to indicate when we can send data.
     set_pollin (qp_handle);
+    snd_enabled = true;
 
-    //  Speculative write: The assumption is that at the moment new message
+    //  Speculative write, the assumption is that at the moment new message
     //  was sent by the user the queue-pair is probably available for writing.
-
     fill_snd_buffer ();
-    post_send_wrs ();
+    post_snd_wrs ();
 }
 
 void zmq::rdma_engine_t::activate_in ()
 {
     set_pollin (qp_handle);
+    rcv_enabled = true;
 
-    //  Speculative read.
-
-    //  TODO: Implement the speculative read.
+    //  Immediately read from the receive buffer if there's some pending data.
+    drain_rcv_buffer ();
+    post_rcv_wrs ();
 }
 
 void zmq::rdma_engine_t::qp_event ()
@@ -354,7 +363,10 @@ void zmq::rdma_engine_t::qp_event ()
         }
 
         if (wc.opcode & IBV_WC_RECV) {
-            //  TODO: Handle receives.
+            //  Record the completed receive operation by adding its size
+            //  to the list of pending received chunks.
+            rcv_sizes[wc.wr_id] = wc.byte_len;
+            update_rcv_posted_id (1);
         } else {
             //  Extract the send work request ID and the buffer offset from the
             //  work completion event wr_id field.
@@ -362,14 +374,18 @@ void zmq::rdma_engine_t::qp_event ()
             uint32_t off = wc.wr_id & 0xffffffff;
 
             //  Record the completed send operations.
-            snd_compl_wr_id = wr_id;
+            avail_snd_wr += (wr_id - compl_snd_wr);
+            compl_snd_wr = wr_id;
             update_snd_posted (off);
         }
     }
 
     //  Send data.
     fill_snd_buffer ();
-    post_send_wrs ();
+    post_snd_wrs ();
+
+    //  Post available read operations.
+    post_rcv_wrs ();
 }
 
 void zmq::rdma_engine_t::id_event ()
@@ -404,13 +420,24 @@ void zmq::rdma_engine_t::fill_snd_buffer ()
     unsigned char *buf = snd_buffer + snd_avail_off;
 
     encoder.get_data (&buf, &size); //  Zero-copy operation.
-    update_snd_avail (size);
+
+    if (size == 0) {
+        //  Signal that there isn't any more data to send.
+        snd_enabled = false;
+
+        if (!snd_enabled && !rcv_enabled) {
+            //  Stop polling on the completion queue.
+            reset_pollin (qp_handle);
+        }
+    }
+    else
+        update_snd_avail (size);
 }
 
-void zmq::rdma_engine_t::post_send_wrs ()
+void zmq::rdma_engine_t::post_snd_wrs ()
 {
     size_t pending = std::min (snd_pending (),
-                               snd_wrs_avail () * def_datagram_size);
+        avail_snd_wr * def_datagram_size);
     int rc;
 
     //  TODO: Create multiple work requests at once and issue all of them with
@@ -425,7 +452,8 @@ void zmq::rdma_engine_t::post_send_wrs ()
         //  Initalize the work request.
 
         //  We store both the WR number and the buffer offset in the ID.
-        wr.wr_id = ((uint64_t)snd_wr_id << 32) | (snd_pending_off + wr_size);
+        wr.wr_id = ((uint64_t)posted_snd_wr << 32)
+            | (snd_pending_off + wr_size);
         wr.next = NULL;
         wr.sg_list = &sge;
         wr.num_sge = 1;
@@ -442,7 +470,8 @@ void zmq::rdma_engine_t::post_send_wrs ()
 
         //  Adjust the pending buffer pointer and WR number.
         update_snd_pending (wr_size);
-        snd_wr_id++;
+        posted_snd_wr++;
+        avail_snd_wr--;
     }
 }
 
@@ -476,6 +505,38 @@ void zmq::rdma_engine_t::post_rcv_wrs ()
     }
 }
 
+void zmq::rdma_engine_t::drain_rcv_buffer ()
+{
+    while (rcv_pending () > 0) {
+        unsigned char *buff = rcv_buffer + (rcv_pending_id * def_datagram_size);
+        size_t size = rcv_sizes[rcv_pending_id];
+        size_t processed = decoder.process_buffer (buff + rcv_off, size);
+
+        if (processed < size) {
+            //  Record some state so we can resume decoding later.
+            rcv_off += processed;
+            rcv_sizes[rcv_pending_id] = size - processed;
+            rcv_enabled = false;
+
+            if (!snd_enabled && !rcv_enabled) {
+                //  Stop polling on the completion queue.
+                reset_pollin (qp_handle);
+            }
+
+            break;
+        } else {
+            //  Reset the in-datagram offset and jump to the next datagram.
+            rcv_off = 0;
+            rcv_pending_id++;
+
+            //  Wrap around if we went past the end of the buffer.
+            if (rcv_pending_id > (rcv_buffer_size / def_datagram_size)) {
+                rcv_pending_id -= (rcv_buffer_size / def_datagram_size);
+            }
+        }
+    }
+}
+
 void zmq::rdma_engine_t::error ()
 {
     zmq_assert (session);
@@ -483,6 +544,19 @@ void zmq::rdma_engine_t::error ()
     unplug ();
     delete this;
 }
+
+//  Returns the number of received datagrams waiting to be decoded.
+
+uint32_t zmq::rdma_engine_t::rcv_pending ()
+{
+    if (rcv_pending_id < rcv_posted_id) {
+        return rcv_posted_id - rcv_pending_id;
+    } else {
+        return ((rcv_buffer_size / def_datagram_size) - rcv_pending_id)
+            + rcv_posted_id;
+    }
+}
+
 
 //  Returns the number of available receive work-requests.
 
@@ -506,6 +580,19 @@ void zmq::rdma_engine_t::update_rcv_avail_id (uint32_t posted_)
     //  Wrap around if we went past the end of the buffer.
     if (rcv_avail_id > (rcv_buffer_size / def_datagram_size)) {
         rcv_avail_id -= (rcv_buffer_size / def_datagram_size);
+    }
+}
+
+//  Update the posted receive work request id to reflect the number of work
+//  requests that were received.
+
+void zmq::rdma_engine_t::update_rcv_posted_id (uint32_t received_)
+{
+    rcv_posted_id += received_;
+
+    //  Wrap around if we went past the end of the buffer.
+    if (rcv_posted_id > (rcv_buffer_size / def_datagram_size)) {
+        rcv_posted_id -= (rcv_buffer_size / def_datagram_size);
     }
 }
 
@@ -552,13 +639,6 @@ void zmq::rdma_engine_t::update_snd_posted (uint32_t off_)
     } else {
         snd_posted_off = off_;
     }
-}
-
-//  Returns the number of available send work-requests.
-
-uint32_t zmq::rdma_engine_t::snd_wrs_avail ()
-{
-    return snd_wr_id - snd_compl_wr_id;
 }
 
 //  Returns a reasonable size for the send/receive buffers depending on the
