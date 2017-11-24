@@ -262,9 +262,6 @@ void zmq::rdma_engine_t::terminate ()
     errno_assert (rc == 0);
 }
 
-//  TODO: This event will be completely overhauled as it will need to handle
-//  both reads and writes.
-
 void zmq::rdma_engine_t::in_event (fd_t fd_)
 {
     bool disconnection = false;
@@ -312,7 +309,48 @@ void zmq::rdma_engine_t::activate_in ()
 
 void zmq::rdma_engine_t::qp_event ()
 {
-    //  TODO: Poll the completion queue.
+    int rc;
+    ibv_cq *cq;
+    void *cq_context;
+    ibv_wc wc;
+
+    //  Retrieve the completion queue event.
+    rc = ibv_get_cq_event (comp_channel, &cq, &cq_context);
+    posix_assert (rc);
+
+    //  Acknowledge the events.
+    //  TODO: This is expensive and should be batched up for multiple events.
+    ibv_ack_cq_events (cq, 1);
+
+    //  Re-arm the notification mechanism.
+    rc = ibv_req_notify_cq (cq, 0);
+    posix_assert (rc);
+
+    //  Finally poll the completion queue.
+    //  TODO: Retrieve multiple WCs at the same time, not just one.
+    while ((rc = ibv_poll_cq (cq, 1, &wc)) > 0) {
+        zmq_assert (rc != -1);
+
+        if (unlikely (wc.status != IBV_WC_SUCCESS)) {
+            if (wc.status == IBV_WC_WR_FLUSH_ERR) {
+                //  We're disconnecting, everything's fine.
+                return;
+            } else {
+                //  TODO: Some errors are not critical and should be handled.
+                zmq_assert (false);
+            }
+        }
+
+        if (wc.opcode & IBV_WC_RECV) {
+            //  TODO: Handle receives.
+        } else {
+            uint32_t wr_id = wc.wr_id >> 32;
+            uint32_t off = wc.wr_id & 0xffffffff;
+
+            snd_compl_wr_id = wr_id;
+            update_snd_posted (off);
+        }
+    }
 
     //  Send data.
     fill_snd_buffer ();
